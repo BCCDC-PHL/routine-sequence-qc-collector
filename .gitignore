@@ -1,0 +1,9 @@
+dev-config.json
+test_*
+excluded_runs.csv
+known_species.csv
+projects.csv
+scripts/cleanup.sh
+*.pyc
+*.egg-info
+
