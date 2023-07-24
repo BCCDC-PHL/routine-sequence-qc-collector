@@ -154,19 +154,57 @@ def scan(config: dict[str, object]) -> Iterator[Optional[dict[str, str]]]:
 
 def infer_species(config: dict[str, object], species_abundance, project_id):
     """
-    :return: Inferred species. Keys: ['name', 'taxid']
-    :rtype: dict[str, str]
+    :return: Name of inferred species.
+    :rtype: str
     """
+    species_abundance_keys = [
+        'abundance_5_',
+        'abundance_4_',
+        'abundance_3_',
+        'abundance_2_',
+        'abundance_1_',
+    ]
     inferred_species = None
     if 'projects' in config and project_id in config['projects']:
         project = config['projects'][project_id]
         if 'fixed_genome_size' in project and project['fixed_genome_size']:
-            inferred_species = {
-                'name': project.get('project_species_name', None),
-                'taxid': project.get('project_species_taxid', None),
-            }
+            inferred_species = project.get('project_species_name', None)
+        else:
+            greatest_fraction_total_reads = 0.0
+            for k in species_abundance_keys:
+                if species_abundance[k + 'name'] != 'Homo sapiens' and species_abundance[k + 'fraction_total_reads'] > greatest_fraction_total_reads:
+                    inferred_species = species_abundance[k + 'name']
+                    greatest_fraction_total_reads = species_abundance[k + 'fraction_total_reads']
+    else:
+        greatest_fraction_total_reads = 0.0
+        for k in species_abundance_keys:
+            if species_abundance[k + 'name'] != 'Homo sapiens' and species_abundance[k + 'fraction_total_reads'] > greatest_fraction_total_reads:
+                inferred_species = species_abundance[k + 'name']
+                greatest_fraction_total_reads = species_abundance[k + 'fraction_total_reads']
 
     return inferred_species
+
+
+def get_percent_reads_by_species_name(species_abundance, species_name):
+    """
+    """
+    percent_reads = None
+    species_abundance_keys = [
+        'abundance_1_',
+        'abundance_2_',
+        'abundance_3_',
+        'abundance_4_',
+        'abundance_5_',
+    ]
+
+    for k in species_abundance_keys:
+        try:
+            if species_abundance[k + 'name'] == species_name:
+                percent_reads = 100 * species_abundance[k + 'fraction_total_reads']
+        except KeyError as e:
+            pass
+
+    return percent_reads        
     
     
 def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, str]]):
@@ -196,38 +234,53 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
     with open(parsed_samplesheet_src_file, 'r') as f:
         samplesheet = json.load(f)
         if analysis_dir['sequencer_type'] == 'miseq':
-            pass
+            samplesheet_key = 'data'
         elif analysis_dir['sequencer_type'] == 'nextseq':
-            for sample in samplesheet['cloud_data']:
+            samplesheet_key = 'cloud_data'
+        else:
+            logging.error(json.dumps({'event_type': 'find_parsed_samplesheet_failed', 'sequencing_run_id': run_id, 'parsed_samplesheet_path': parsed_samplesheet_src_file}))
+            return None
+
+        for sample in samplesheet[samplesheet_key]:
+            if 'sample_id' in sample and re.match("S\d+$", sample['sample_id']):
+                if 'sample_name' in sample:
+                    library_id = sample['sample_name']
+            else:
                 library_id = sample['sample_id']
+            if 'project_name' in sample:
                 samplesheet_project_id = sample['project_name']
-                library = {
-                    'library_id': library_id,
-                    'samplesheet_project_id': samplesheet_project_id,
-                }
+            elif 'sample_project' in sample:
+                samplesheet_project_id = sample['sample_project']
+            else:
+                samplesheet_project_id = ""
 
-                if samplesheet_project_id in config['projects']:
-                    project = config['projects'][samplesheet_project_id]
-                    if 'translated_project_id' in project and project['translated_project_id'] != '':
-                        translated_project_id = project['translated_project_id']
-                        library['translated_project_id'] = translated_project_id
+            library = {
+                'library_id': library_id,
+                'samplesheet_project_id': samplesheet_project_id,
+            }
 
-                if 'translated_project_id' in library:
-                    library['project_id'] = library['translated_project_id']
-                else:
-                    library['project_id'] = library['samplesheet_project_id']
+            if samplesheet_project_id in config['projects']:
+                project = config['projects'][samplesheet_project_id]
+                if 'translated_project_id' in project and project['translated_project_id'] != '':
+                    translated_project_id = project['translated_project_id']
+                    library['translated_project_id'] = translated_project_id
 
-                # This gets pretty verbose, even for debugging.
-                # Un-comment during development if needed
-                # logging.debug(json.dumps({
-                #     'event_type': 'library_parsed_from_samplesheet',
-                #     'parsed_samplesheet_path': parsed_samplesheet_src_file,
-                #     'sequencing_run_id': run_id,
-                #     'library_id': library_id,
-                #     'project_id': project_id,
-                # }))
+            if 'translated_project_id' in library:
+                library['project_id'] = library['translated_project_id']
+            else:
+                library['project_id'] = library['samplesheet_project_id']
 
-                libraries_by_library_id[library_id] = library
+            # This gets pretty verbose, even for debugging.
+            # Un-comment during development if needed
+            # logging.debug(json.dumps({
+            #     'event_type': 'library_parsed_from_samplesheet',
+            #     'parsed_samplesheet_path': parsed_samplesheet_src_file,
+            #     'sequencing_run_id': run_id,
+            #     'library_id': library_id,
+            #     'project_id': project_id,
+            # }))
+
+            libraries_by_library_id[library_id] = library
 
     # species-abundance
     species_abundance_by_library_id = {library_id: {'library_id': library_id, 'project_id': libraries_by_library_id[library_id]['project_id']} for library_id in libraries_by_library_id.keys()}
@@ -279,11 +332,13 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
                         inferred_species = infer_species(config, species_abundance_by_library_id[library_id], project_id)
                         if inferred_species is not None:
                             logging.debug(json.dumps({'event_type': 'library_species_inferred', 'sequencing_run_id': run_id, 'library_id': library_id, 'inferred_species': inferred_species}))
+                            libraries_by_library_id[library_id]['inferred_species_name'] = inferred_species
+                            percent_inferred_species = get_percent_reads_by_species_name(species_abundance_by_library_id[library_id], inferred_species)
+                            if percent_inferred_species is None:
+                                logging.error(json.dumps({"event_type": "collect_library_qc_metric_failed", "metric": "inferred_species_percent", 'library_id': library_id, 'inferred_species': inferred_species}))
+                            libraries_by_library_id[library_id]['inferred_species_percent'] = percent_inferred_species
                         else:
                             logging.debug(json.dumps({'event_type': 'library_species_inference_failed', 'sequencing_run_id': run_id, 'library_id': library_id, 'inferred_species': inferred_species}))
-                        if inferred_species is not None:
-                            libraries_by_library_id[library_id]['inferred_species_name'] = inferred_species['name']
-                            libraries_by_library_id[library_id]['inferred_species_taxid'] = inferred_species['taxid']
                         try:
                             total_bases = int(row.get('total_bases', None))
                         except ValueError as e:

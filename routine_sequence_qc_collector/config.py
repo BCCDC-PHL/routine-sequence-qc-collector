@@ -17,6 +17,12 @@ def get_excluded_runs(config):
 
 def get_projects(config):
     """
+    Read the 'projects_definition_file' to get details for projects.
+
+    :param config: Application config
+    :type config: dict[str, object]
+    :return: Project details. Keys: ['samplesheet_project_id', 'translated_project_id', 'project_species_name', 'fixed_genome_size', 'genome_size_mb']
+    :rtype: dict[str, object]
     """
     projects = {}
     with open(config['projects_definition_file'], 'r') as f:
