@@ -242,11 +242,11 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
             return None
 
         for sample in samplesheet[samplesheet_key]:
-            if 'sample_id' in sample and re.match("S\d+$", sample['sample_id']):
+            if 'sample_id' in sample and re.match("S\d{1,4}$", sample['sample_id']):
                 if 'sample_name' in sample:
-                    library_id = sample['sample_name']
+                    library_id = sample['sample_name'].strip().replace('_', '-').replace('.', '-')
             else:
-                library_id = sample['sample_id']
+                library_id = sample['sample_id'].strip().replace('_', '-').replace('.', '-')
             if 'project_name' in sample:
                 samplesheet_project_id = sample['project_name']
             elif 'sample_project' in sample:
@@ -337,6 +337,9 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
                             if percent_inferred_species is None:
                                 logging.error(json.dumps({"event_type": "collect_library_qc_metric_failed", "metric": "inferred_species_percent", 'library_id': library_id, 'inferred_species': inferred_species}))
                             libraries_by_library_id[library_id]['inferred_species_percent'] = percent_inferred_species
+                            if 'known_species' in config and inferred_species in config['known_species']:
+                                inferred_species_genome_size = config['known_species'][inferred_species]['genome_size_mb']
+                                libraries_by_library_id[library_id]['inferred_species_genome_size_mb'] = inferred_species_genome_size
                         else:
                             logging.debug(json.dumps({'event_type': 'library_species_inference_failed', 'sequencing_run_id': run_id, 'library_id': library_id, 'inferred_species': inferred_species}))
                         try:
@@ -344,6 +347,12 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
                         except ValueError as e:
                             logging.error(json.dumps({'event_type': 'collect_library_qc_metric_failed', 'metric': 'total_bases', 'sequencing_run_id': run_id, 'library_id': library_id}))
                         libraries_by_library_id[library_id]['total_bases'] = total_bases
+                        if all(k in libraries_by_library_id[library_id] for k in ['total_bases', 'inferred_species_genome_size_mb', 'inferred_species_percent']):
+                            total_bases = libraries_by_library_id[library_id]['total_bases']
+                            genome_size = libraries_by_library_id[library_id]['inferred_species_genome_size_mb'] * 1000000
+                            species_percent = libraries_by_library_id[library_id]['inferred_species_percent']
+                            if all([total_bases, genome_size, species_percent]):
+                                libraries_by_library_id[library_id]['inferred_species_estimated_depth'] = (total_bases * (species_percent / 100)) / genome_size
                         try:
                             percent_bases_above_q30 = float(row.get('percent_bases_above_q30', None))
                         except ValueError as e:

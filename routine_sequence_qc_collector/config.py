@@ -67,27 +67,33 @@ def get_known_species(config):
     with open(config['known_species_list'], 'r') as f:
         reader = csv.DictReader(f, dialect='unix')
         for row in reader:
+            species = {}
             taxid = row['ncbi_taxonomy_id']
-            known_species[taxid] = {'ncbi_taxonomy_id': taxid}
+            species['ncbi_taxonomy_id'] = taxid
+            
             if row['species_name'] != '':
-                known_species[taxid]['species_name'] = row['species_name']
+                species['species_name'] = row['species_name']
 
             if row['genome_size_mb'] != '':
                 try:
                     genome_size_mb = float(row['genome_size_mb'])
-                    known_species[taxid]['genome_size_mb'] = genome_size_mb
+                    species['genome_size_mb'] = genome_size_mb
                 except ValueError as e:
                     pass
 
             if row['gc_percent'] != '':
                 try:
                     gc_percent = float(row['gc_percent'])
-                    known_species[taxid]['gc_percent'] = gc_percent
+                    species['gc_percent'] = gc_percent
                 except ValueError as e:
                     pass
 
             if row['refseq_assembly_accession'] != '':
-                known_species[taxid]['refseq_assembly_accession'] = row['refseq_assembly_accession']
+                species['refseq_assembly_accession'] = row['refseq_assembly_accession']
+
+            known_species[taxid] = species
+            if species['species_name'] != "":
+                known_species[species['species_name']] = species
 
     return known_species
 
