@@ -23,6 +23,7 @@ def create_output_dirs(config):
         os.path.join(base_outdir, 'fastqc'),
         os.path.join(base_outdir, 'library-qc'),
         os.path.join(base_outdir, 'species-abundance'),
+        os.path.join(base_outdir, 'bracken-species-abundances'),
     ]
     for output_dir in output_dirs:
         if not os.path.exists(output_dir):
@@ -178,7 +179,7 @@ def infer_species(config: dict[str, object], species_abundance, project_id):
     else:
         greatest_fraction_total_reads = 0.0
         for k in species_abundance_keys:
-            if species_abundance[k + 'name'] != 'Homo sapiens' and species_abundance[k + 'fraction_total_reads'] > greatest_fraction_total_reads:
+            if (k + 'name') in species_abundance and species_abundance[k + 'name'] != 'Homo sapiens' and species_abundance[k + 'fraction_total_reads'] > greatest_fraction_total_reads:
                 inferred_species = species_abundance[k + 'name']
                 greatest_fraction_total_reads = species_abundance[k + 'fraction_total_reads']
 
@@ -315,6 +316,22 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
             "dst_file": species_abundance_dst_file
         }))
 
+    if not os.path.exists(os.path.join(config['output_dir'], "bracken-species-abundances", run_id)):
+        os.makedirs(os.path.join(config['output_dir'], "bracken-species-abundances", run_id))
+        
+    for library_id in libraries_by_library_id.keys():
+        bracken_abundances_dst_file = os.path.join(config['output_dir'], "bracken-species-abundances", run_id, library_id + "_bracken_species_abundances.tsv")
+        if not os.path.exists(bracken_abundances_dst_file):
+            bracken_abundances_src_file = os.path.join(latest_routine_sequence_qc_output_path, 'bracken', library_id + '_Species_bracken_abundances_adjusted.tsv')
+            if os.path.exists(bracken_abundances_src_file):
+                shutil.copyfile(bracken_abundances_src_file, bracken_abundances_dst_file)
+                logging.debug(json.dumps({
+                    "event_type": "copy_bracken_abundances_complete",
+                    "run_id": run_id,
+                    "src_file": bracken_abundances_src_file,
+                    "dst_file": bracken_abundances_dst_file
+                }))
+
     # library-qc
     library_qc_dst_file = os.path.join(config['output_dir'], "library-qc", run_id + "_library_qc.json")
     if not os.path.exists(library_qc_dst_file):
@@ -385,7 +402,7 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
                 }))
             if os.path.exists(fastqc_src_file) and not os.path.exists(fastqc_dst_file):
                 shutil.copyfile(fastqc_src_file, fastqc_dst_file)
-                logging.info(json.dumps({
+                logging.debug(json.dumps({
                     "event_type": "copy_fastqc_complete",
                     "run_id": run_id,
                     "src_file": fastqc_src_file,
