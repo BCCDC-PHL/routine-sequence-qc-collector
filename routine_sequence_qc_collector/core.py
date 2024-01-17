@@ -15,6 +15,12 @@ import routine_sequence_qc_collector.samplesheet as samplesheet
 
 def create_output_dirs(config):
     """
+    Create output directories if they don't exist.
+
+    :param config: Application config.
+    :type config: dict[str, object]
+    :return: None
+    :rtype: None
     """
     base_outdir = config['output_dir']
     output_dirs = [
@@ -32,6 +38,12 @@ def create_output_dirs(config):
 
 def find_latest_routine_sequence_qc_output(analysis_dir):
     """
+    Find the latest routine sequence QC output directory, for a given run's analysis directory.
+
+    :param analysis_dir: Analysis directory.
+    :type analysis_dir: str
+    :return: Path to latest routine sequence QC output directory.
+    :rtype: str
     """
     routine_sequence_qc_output_dir_glob = "routine-sequence-qc-v*-output"
     routine_sequence_qc_output_dirs = glob.glob(os.path.join(analysis_dir, routine_sequence_qc_output_dir_glob))
@@ -44,6 +56,14 @@ def find_latest_routine_sequence_qc_output(analysis_dir):
 
 def find_analysis_dirs(config, check_complete=True):
     """
+    Find all analysis directories.
+
+    :param config: Application config.
+    :type config: dict[str, object]
+    :param check_complete: Check if analysis is complete.
+    :type check_complete: bool
+    :return: Analysis directory.
+    :rtype: Iterator[Optional[dict[str, str]]]
     """
     miseq_run_id_regex = "\d{6}_M\d{5}_\d+_\d{9}-[A-Z0-9]{5}"
     nextseq_run_id_regex = "\d{6}_VH\d{5}_\d+_[A-Z0-9]{9}"
@@ -124,11 +144,22 @@ def find_runs(config):
 
         analysis_dir = os.path.join(config['analysis_by_run_dir'], run_id)
         latest_routine_sequence_qc_output_dir = find_latest_routine_sequence_qc_output(analysis_dir)
-        
+        qc_check_complete_file = os.path.join(latest_routine_sequence_qc_output_dir, 'qc_check_complete.json')
+
+        qc_check_info = {}
+        if os.path.exists(qc_check_complete_file):
+            with open(qc_check_complete_file, 'r') as f:
+                qc_check_info = json.load(f)
+
+        check_metrics = qc_check_info.get('checked_metrics', [])
         if os.path.exists(os.path.join(latest_routine_sequence_qc_output_dir, 'pipeline_complete.json')):
             run = {
                 'run_id': run_id,
                 'sequencer_type': sequencer_type,
+                'run_qc_check': {
+                    'checked_metrics': check_metrics,
+                    'overall_qc_pass_fail': qc_check_info.get('overall_pass_fail', None),
+                }
             }
             runs.append(run)
 
@@ -216,8 +247,8 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
     :type config: dict[str, object]
     :param analysis_dir: Analysis dir. Keys: ['path', 'sequencer_type']
     :type analysis_dir: dict[str, str]
-    :return: 
-    :rtype: 
+    :return: None
+    :rtype: None
     """
     run_id = os.path.basename(analysis_dir['path'])
     logging.info(json.dumps({"event_type": "collect_outputs_start", "sequencing_run_id": run_id, "analysis_dir_path": analysis_dir['path']}))
@@ -230,7 +261,7 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
     if not os.path.exists(parsed_samplesheet_src_file):
         logging.error(json.dumps({'event_type': 'find_parsed_samplesheet_failed', 'sequencing_run_id': run_id, 'parsed_samplesheet_path': parsed_samplesheet_src_file}))
         return None
-    
+
     libraries_by_library_id = {}
     with open(parsed_samplesheet_src_file, 'r') as f:
         samplesheet = json.load(f)
