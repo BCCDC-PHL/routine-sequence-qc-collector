@@ -123,7 +123,8 @@ def find_runs(config):
     logging.info(json.dumps({"event_type": "find_runs_start"}))
     runs = []
     all_analysis_dirs = sorted(list(os.listdir(config['analysis_by_run_dir'])))
-    all_run_ids = filter(lambda x: re.match('\d{6}_[VM]', x) != None, all_analysis_dirs)
+    all_run_ids = list(filter(instrument.matches_a_valid_run_id_regex, all_analysis_dirs))
+
     for run_id in all_run_ids:
         if run_id in config['excluded_runs']:
             continue
@@ -150,9 +151,7 @@ def find_runs(config):
             }
             runs.append(run)
 
-    logging.info(json.dumps({
-        "event_type": "find_runs_complete"
-    }))
+    logging.info(json.dumps({"event_type": "find_runs_complete"}))
 
     return runs
 
