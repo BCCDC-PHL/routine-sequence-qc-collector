@@ -11,6 +11,7 @@ from typing import Iterator, Optional
 
 import routine_sequence_qc_collector.parsers as parsers
 import routine_sequence_qc_collector.samplesheet as samplesheet
+import routine_sequence_qc_collector.instrument as instrument
 
 
 def create_output_dirs(config):
@@ -65,20 +66,12 @@ def find_analysis_dirs(config, check_complete=True):
     :return: Analysis directory.
     :rtype: Iterator[Optional[dict[str, str]]]
     """
-    miseq_run_id_regex = "\d{6}_M\d{5}_\d+_\d{9}-[A-Z0-9]{5}"
-    nextseq_run_id_regex = "\d{6}_VH\d{5}_\d+_[A-Z0-9]{9}"
     analysis_by_run_dir = config['analysis_by_run_dir']
     subdirs = os.scandir(analysis_by_run_dir)
     
     for subdir in subdirs:
         run_id = subdir.name
-        matches_miseq_regex = re.match(miseq_run_id_regex, run_id)
-        matches_nextseq_regex = re.match(nextseq_run_id_regex, run_id)
-        sequencer_type = None
-        if matches_miseq_regex:
-            sequencer_type = 'miseq'
-        elif matches_nextseq_regex:
-            sequencer_type = 'nextseq'
+        instrument_type = instrument.determine_instrument_type(run_id)
         not_excluded = run_id not in config['excluded_runs']
         ready_to_collect = False
         if check_complete:
@@ -91,7 +84,7 @@ def find_analysis_dirs(config, check_complete=True):
 
         conditions_checked = {
             "is_directory": subdir.is_dir(),
-            "matches_illumina_run_id_format": ((matches_miseq_regex is not None) or (matches_nextseq_regex is not None)),
+            "supported_run_id_format": instrument_type != "unknown",
             "not_excluded": not_excluded,
             "ready_to_collect": ready_to_collect,
         }
@@ -100,7 +93,7 @@ def find_analysis_dirs(config, check_complete=True):
         analysis_directory_path = os.path.abspath(subdir.path)
         analysis_dir = {
             "path": analysis_directory_path,
-            "sequencer_type": sequencer_type,
+            "instrument_type": instrument_type,
         }
         if all(conditions_met):
             logging.info(json.dumps({
@@ -125,7 +118,7 @@ def find_runs(config):
 
     :param config: Application config.
     :type config: dict[str, object]
-    :return: List of runs. Keys: ['run_id', 'sequencer_type']
+    :return: List of runs. Keys: ['run_id', 'instrument_type']
     :rtype: list[dict[str, str]]
     """
     logging.info(json.dumps({"event_type": "find_runs_start"}))
@@ -136,12 +129,7 @@ def find_runs(config):
         if run_id in config['excluded_runs']:
             continue
 
-        sequencer_type = None
-        if re.match('\d{6}_M\d{5}_', run_id):
-            sequencer_type = 'miseq'
-        elif re.match('\d{6}_VH\d{5}_', run_id):
-            sequencer_type = 'nextseq'
-
+        instrument_type = instrument.determine_instrument_type(run_id)
         analysis_dir = os.path.join(config['analysis_by_run_dir'], run_id)
         latest_routine_sequence_qc_output_dir = find_latest_routine_sequence_qc_output(analysis_dir)
         qc_check_complete_file = os.path.join(latest_routine_sequence_qc_output_dir, 'qc_check_complete.json')
@@ -155,7 +143,7 @@ def find_runs(config):
         if os.path.exists(os.path.join(latest_routine_sequence_qc_output_dir, 'pipeline_complete.json')):
             run = {
                 'run_id': run_id,
-                'sequencer_type': sequencer_type,
+                'instrument_type': instrument_type,
                 'run_qc_check': {
                     'checked_metrics': check_metrics,
                     'overall_qc_pass_fail': qc_check_info.get('overall_pass_fail', None),
@@ -245,11 +233,15 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
 
     :param config: Application config.
     :type config: dict[str, object]
-    :param analysis_dir: Analysis dir. Keys: ['path', 'sequencer_type']
+    :param analysis_dir: Analysis dir. Keys: ['path', 'instrument_type']
     :type analysis_dir: dict[str, str]
     :return: None
     :rtype: None
     """
+    if not analysis_dir:
+        logging.debug(json.dumps({"event_type": "collect_outputs_failed", "analysis_dir": analysis_dir}))
+        return None
+
     run_id = os.path.basename(analysis_dir['path'])
     logging.info(json.dumps({"event_type": "collect_outputs_start", "sequencing_run_id": run_id, "analysis_dir_path": analysis_dir['path']}))
 
@@ -265,16 +257,18 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
     libraries_by_library_id = {}
     with open(parsed_samplesheet_src_file, 'r') as f:
         samplesheet = json.load(f)
-        if analysis_dir['sequencer_type'] == 'miseq':
+        if analysis_dir['instrument_type'] == 'miseq':
             samplesheet_key = 'data'
-        elif analysis_dir['sequencer_type'] == 'nextseq':
+        elif analysis_dir['instrument_type'] == 'nextseq':
+            samplesheet_key = 'cloud_data'
+        elif analysis_dir['instrument_type'] == 'i100':
             samplesheet_key = 'cloud_data'
         else:
             logging.error(json.dumps({'event_type': 'find_parsed_samplesheet_failed', 'sequencing_run_id': run_id, 'parsed_samplesheet_path': parsed_samplesheet_src_file}))
             return None
 
         for sample in samplesheet[samplesheet_key]:
-            if 'sample_id' in sample and re.match("S\d{1,4}$", sample['sample_id']):
+            if 'sample_id' in sample and re.match("S\\d{1,4}$", sample['sample_id']):
                 if 'sample_name' in sample:
                     library_id = sample['sample_name'].strip().replace('_', '-').replace('.', '-')
             else:
