@@ -10,7 +10,6 @@ import shutil
 from typing import Iterator, Optional
 
 import routine_sequence_qc_collector.parsers as parsers
-import routine_sequence_qc_collector.samplesheet as samplesheet
 import routine_sequence_qc_collector.instrument as instrument
 
 
