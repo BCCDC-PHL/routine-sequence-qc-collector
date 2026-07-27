@@ -245,6 +245,10 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
 
     latest_routine_sequence_qc_output_path = find_latest_routine_sequence_qc_output(analysis_dir['path'])
 
+    if not latest_routine_sequence_qc_output_path:
+        logging.error(json.dumps({'event_type': 'find_routine_sequence_qc_outdir_failed', 'sequencing_run_id': run_id}))
+        return None
+
     parsed_samplesheet_src_file = os.path.join(latest_routine_sequence_qc_output_path, 'parse_sample_sheet', 'sample_sheet.json')
     # If we can't find the parsed SampleSheet then we don't have a
     # Simple way to get Sample IDs and Project IDs. 
@@ -257,10 +261,11 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
         samplesheet = json.load(f)
         if analysis_dir['instrument_type'] == 'miseq':
             samplesheet_key = 'data'
-        elif analysis_dir['instrument_type'] == 'nextseq':
-            samplesheet_key = 'cloud_data'
-        elif analysis_dir['instrument_type'] == 'i100':
-            samplesheet_key = 'cloud_data'
+        elif analysis_dir['instrument_type'] in set(['nextseq', 'i100']):
+            if 'cloud_data' in samplesheet:
+                samplesheet_key = 'cloud_data'
+            else:
+                samplesheet_key = 'bclconvert_data'
         else:
             logging.error(json.dumps({'event_type': 'find_parsed_samplesheet_failed', 'sequencing_run_id': run_id, 'parsed_samplesheet_path': parsed_samplesheet_src_file}))
             return None
