@@ -1,6 +1,8 @@
 import json
 import csv
+import logging
 
+log = logging.getLogger(__name__)
 
 def get_excluded_runs(config):
     """

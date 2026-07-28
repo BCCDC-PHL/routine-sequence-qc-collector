@@ -12,6 +12,7 @@ from typing import Iterator, Optional
 import routine_sequence_qc_collector.parsers as parsers
 import routine_sequence_qc_collector.instrument as instrument
 
+log = logging.getLogger(__name__)
 
 def create_output_dirs(config):
     """
@@ -95,19 +96,19 @@ def find_analysis_dirs(config, check_complete=True):
             "instrument_type": instrument_type,
         }
         if all(conditions_met):
-            logging.info(json.dumps({
+            log.info({
                 "event_type": "analysis_directory_found",
                 "sequencing_run_id": run_id,
                 "analysis_directory_path": analysis_directory_path
-            }))
+            })
 
             yield analysis_dir
         else:
-            logging.debug(json.dumps({
+            log.debug({
                 "event_type": "directory_skipped",
                 "analysis_directory_path": os.path.abspath(subdir.path),
                 "conditions_checked": conditions_checked
-            }))
+            })
             yield None
 
             
@@ -120,7 +121,7 @@ def find_runs(config):
     :return: List of runs. Keys: ['run_id', 'instrument_type']
     :rtype: list[dict[str, str]]
     """
-    logging.info(json.dumps({"event_type": "find_runs_start"}))
+    log.info({"event_type": "find_runs_start"})
     runs = []
     all_analysis_dirs = sorted(list(os.listdir(config['analysis_by_run_dir'])))
     all_run_ids = list(filter(instrument.matches_a_valid_run_id_regex, all_analysis_dirs))
@@ -151,7 +152,7 @@ def find_runs(config):
             }
             runs.append(run)
 
-    logging.info(json.dumps({"event_type": "find_runs_complete"}))
+    log.info({"event_type": "find_runs_complete"})
 
     return runs
 
@@ -165,7 +166,7 @@ def scan(config: dict[str, object]) -> Iterator[Optional[dict[str, str]]]:
     :return: A run directory to analyze, or None
     :rtype: Iterator[Optional[dict[str, object]]]
     """
-    logging.info(json.dumps({"event_type": "scan_start"}))
+    log.info({"event_type": "scan_start"})
     for analysis_dir in find_analysis_dirs(config):    
         yield analysis_dir
 
@@ -237,23 +238,23 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
     :rtype: None
     """
     if not analysis_dir:
-        logging.debug(json.dumps({"event_type": "collect_outputs_failed", "analysis_dir": analysis_dir}))
+        log.debug({"event_type": "collect_outputs_failed", "analysis_dir": analysis_dir})
         return None
 
     run_id = os.path.basename(analysis_dir['path'])
-    logging.info(json.dumps({"event_type": "collect_outputs_start", "sequencing_run_id": run_id, "analysis_dir_path": analysis_dir['path']}))
+    log.info({"event_type": "collect_outputs_start", "sequencing_run_id": run_id, "analysis_dir_path": analysis_dir['path']})
 
     latest_routine_sequence_qc_output_path = find_latest_routine_sequence_qc_output(analysis_dir['path'])
 
     if not latest_routine_sequence_qc_output_path:
-        logging.error(json.dumps({'event_type': 'find_routine_sequence_qc_outdir_failed', 'sequencing_run_id': run_id}))
+        log.error({'event_type': 'find_routine_sequence_qc_outdir_failed', 'sequencing_run_id': run_id})
         return None
 
     parsed_samplesheet_src_file = os.path.join(latest_routine_sequence_qc_output_path, 'parse_sample_sheet', 'sample_sheet.json')
     # If we can't find the parsed SampleSheet then we don't have a
     # Simple way to get Sample IDs and Project IDs. 
     if not os.path.exists(parsed_samplesheet_src_file):
-        logging.error(json.dumps({'event_type': 'find_parsed_samplesheet_failed', 'sequencing_run_id': run_id, 'parsed_samplesheet_path': parsed_samplesheet_src_file}))
+        log.error({'event_type': 'find_parsed_samplesheet_failed', 'sequencing_run_id': run_id, 'parsed_samplesheet_path': parsed_samplesheet_src_file})
         return None
 
     libraries_by_library_id = {}
@@ -267,7 +268,7 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
             else:
                 samplesheet_key = 'bclconvert_data'
         else:
-            logging.error(json.dumps({'event_type': 'find_parsed_samplesheet_failed', 'sequencing_run_id': run_id, 'parsed_samplesheet_path': parsed_samplesheet_src_file}))
+            log.error({'event_type': 'find_parsed_samplesheet_failed', 'sequencing_run_id': run_id, 'parsed_samplesheet_path': parsed_samplesheet_src_file})
             return None
 
         for sample in samplesheet[samplesheet_key]:
@@ -301,13 +302,13 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
 
             # This gets pretty verbose, even for debugging.
             # Un-comment during development if needed
-            # logging.debug(json.dumps({
+            # log.debug({
             #     'event_type': 'library_parsed_from_samplesheet',
             #     'parsed_samplesheet_path': parsed_samplesheet_src_file,
             #     'sequencing_run_id': run_id,
             #     'library_id': library_id,
             #     'project_id': project_id,
-            # }))
+            # })
 
             libraries_by_library_id[library_id] = library
 
@@ -332,17 +333,17 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
                             try:
                                 fraction_total_reads = float(row.get(fraction_total_reads_key, None))
                             except ValueError as e:
-                                logging.error(json.dumps({'event_type': 'collect_species_abundance_metric_failed', 'metric': fraction_total_reads_key, 'sequencing_run_id': run_id, 'library_id': library_id}))
+                                log.error({'event_type': 'collect_species_abundance_metric_failed', 'metric': fraction_total_reads_key, 'sequencing_run_id': run_id, 'library_id': library_id})
                             species_abundance_by_library_id[library_id][fraction_total_reads_key] = fraction_total_reads
 
         with open(species_abundance_dst_file, 'w') as f:
             json.dump(list(species_abundance_by_library_id.values()), f, indent=2)
 
-        logging.info(json.dumps({
+        log.info({
             "event_type": "write_species_abundance_complete",
             "run_id": run_id,
             "dst_file": species_abundance_dst_file
-        }))
+        })
 
     if not os.path.exists(os.path.join(config['output_dir'], "bracken-species-abundances", run_id)):
         os.makedirs(os.path.join(config['output_dir'], "bracken-species-abundances", run_id))
@@ -353,12 +354,12 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
             bracken_abundances_src_file = os.path.join(latest_routine_sequence_qc_output_path, 'bracken', library_id + '_Species_bracken_abundances_adjusted.tsv')
             if os.path.exists(bracken_abundances_src_file):
                 shutil.copyfile(bracken_abundances_src_file, bracken_abundances_dst_file)
-                logging.debug(json.dumps({
+                log.debug({
                     "event_type": "copy_bracken_abundances_complete",
                     "run_id": run_id,
                     "src_file": bracken_abundances_src_file,
                     "dst_file": bracken_abundances_dst_file
-                }))
+                })
 
     # library-qc
     library_qc_dst_file = os.path.join(config['output_dir'], "library-qc", run_id + "_library_qc.json")
@@ -376,21 +377,21 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
                         inferred_species = None
                         inferred_species = infer_species(config, species_abundance_by_library_id[library_id], project_id)
                         if inferred_species is not None:
-                            logging.debug(json.dumps({'event_type': 'library_species_inferred', 'sequencing_run_id': run_id, 'library_id': library_id, 'inferred_species': inferred_species}))
+                            log.debug({'event_type': 'library_species_inferred', 'sequencing_run_id': run_id, 'library_id': library_id, 'inferred_species': inferred_species})
                             libraries_by_library_id[library_id]['inferred_species_name'] = inferred_species
                             percent_inferred_species = get_percent_reads_by_species_name(species_abundance_by_library_id[library_id], inferred_species)
                             if percent_inferred_species is None:
-                                logging.error(json.dumps({"event_type": "collect_library_qc_metric_failed", "metric": "inferred_species_percent", 'library_id': library_id, 'inferred_species': inferred_species}))
+                                log.error({"event_type": "collect_library_qc_metric_failed", "metric": "inferred_species_percent", 'library_id': library_id, 'inferred_species': inferred_species})
                             libraries_by_library_id[library_id]['inferred_species_percent'] = percent_inferred_species
                             if 'known_species' in config and inferred_species in config['known_species']:
                                 inferred_species_genome_size = config['known_species'][inferred_species]['genome_size_mb']
                                 libraries_by_library_id[library_id]['inferred_species_genome_size_mb'] = inferred_species_genome_size
                         else:
-                            logging.debug(json.dumps({'event_type': 'library_species_inference_failed', 'sequencing_run_id': run_id, 'library_id': library_id, 'inferred_species': inferred_species}))
+                            log.debug({'event_type': 'library_species_inference_failed', 'sequencing_run_id': run_id, 'library_id': library_id, 'inferred_species': inferred_species})
                         try:
                             total_bases = int(row.get('total_bases', None))
                         except ValueError as e:
-                            logging.error(json.dumps({'event_type': 'collect_library_qc_metric_failed', 'metric': 'total_bases', 'sequencing_run_id': run_id, 'library_id': library_id}))
+                            log.error({'event_type': 'collect_library_qc_metric_failed', 'metric': 'total_bases', 'sequencing_run_id': run_id, 'library_id': library_id})
                         libraries_by_library_id[library_id]['total_bases'] = total_bases
                         if all(k in libraries_by_library_id[library_id] for k in ['total_bases', 'inferred_species_genome_size_mb', 'inferred_species_percent']):
                             total_bases = libraries_by_library_id[library_id]['total_bases']
@@ -401,17 +402,17 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
                         try:
                             percent_bases_above_q30 = float(row.get('percent_bases_above_q30', None))
                         except ValueError as e:
-                            logging.error(json.dumps({'event_type': 'collect_library_qc_metric_failed', 'metric': 'percent_bases_above_q30', 'sequencing_run_id': run_id, 'library_id': library_id}))
+                            log.error({'event_type': 'collect_library_qc_metric_failed', 'metric': 'percent_bases_above_q30', 'sequencing_run_id': run_id, 'library_id': library_id})
                         libraries_by_library_id[library_id]['percent_bases_above_q30'] = percent_bases_above_q30
 
         with open(library_qc_dst_file, 'w') as f:
             json.dump(list(libraries_by_library_id.values()), f, indent=2)
 
-        logging.info(json.dumps({
+        log.info({
             "event_type": "write_library_qc_complete",
             "run_id": run_id,
             "dst_file": library_qc_dst_file
-        }))
+        })
 
     if not os.path.exists(os.path.join(config['output_dir'], "fastqc", run_id)):
         os.makedirs(os.path.join(config['output_dir'], "fastqc", run_id))
@@ -422,39 +423,39 @@ def collect_outputs(config: dict[str, object], analysis_dir: Optional[dict[str, 
             fastqc_src_file = os.path.join(latest_routine_sequence_qc_output_path, 'fastqc', '_'.join([library_id, read_type, 'fastqc']), 'fastqc_report.html')
             fastqc_dst_file = os.path.join(config['output_dir'], "fastqc", run_id, '_'.join([library_id, read_type, 'fastqc.html']))
             if not os.path.exists(fastqc_src_file):
-                logging.warn(json.dumps({
+                log.warning({
                     "event_type": "copy_fastqc_failed",
                     "run_id": run_id,
                     "src_file": fastqc_src_file,
                     "dst_file": fastqc_dst_file,
-                }))
+                })
             if os.path.exists(fastqc_src_file) and not os.path.exists(fastqc_dst_file):
                 shutil.copyfile(fastqc_src_file, fastqc_dst_file)
-                logging.debug(json.dumps({
+                log.debug({
                     "event_type": "copy_fastqc_complete",
                     "run_id": run_id,
                     "src_file": fastqc_src_file,
                     "dst_file": fastqc_dst_file
-                })) 
+                })
 
     # multiqc
     multiqc_src_file = os.path.join(latest_routine_sequence_qc_output_path, 'multiqc', 'multiqc_report.html')
     multiqc_dst_file = os.path.join(config['output_dir'], "multiqc", run_id + "_multiqc.html")
     if not os.path.exists(multiqc_src_file):
-        logging.warn(json.dumps({
+        log.warning({
             "event_type": "copy_multiqc_failed",
             "run_id": run_id,
             "src_file": multiqc_src_file,
             "dst_file": multiqc_dst_file
-        }))
+        })
     if os.path.exists(multiqc_src_file) and not os.path.exists(multiqc_dst_file):
         shutil.copyfile(multiqc_src_file, multiqc_dst_file)
-        logging.info(json.dumps({
+        log.info({
             "event_type": "copy_multiqc_complete",
             "run_id": run_id,
             "src_file": multiqc_src_file,
             "dst_file": multiqc_dst_file
-        }))
+        })
 
 
-    logging.info(json.dumps({"event_type": "collect_outputs_complete", "sequencing_run_id": run_id, "analysis_dir_path": analysis_dir['path']}))
+    log.info({"event_type": "collect_outputs_complete", "sequencing_run_id": run_id, "analysis_dir_path": analysis_dir['path']})
